@@ -31,16 +31,22 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.FileCopyUtils;
+import org.springframework.util.SocketUtils;
 
 /**
  * Sample Application to show Tomcat running 2 connectors
- * 
+ *
  * @author Brock Mills
  */
 @Configuration
 @EnableAutoConfiguration
 @ComponentScan
 public class SampleTomcatTwoConnectorsApplication {
+
+	@Bean
+	public int port() {
+		return SocketUtils.findAvailableTcpPort();
+	}
 
 	@Bean
 	public EmbeddedServletContainerFactory servletContainer() {
@@ -57,7 +63,7 @@ public class SampleTomcatTwoConnectorsApplication {
 			File truststore = keystore;
 			connector.setScheme("https");
 			connector.setSecure(true);
-			connector.setPort(8443);
+			connector.setPort(port());
 			protocol.setSSLEnabled(true);
 			protocol.setKeystoreFile(keystore.getAbsolutePath());
 			protocol.setKeystorePass("changeit");

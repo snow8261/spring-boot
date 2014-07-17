@@ -20,12 +20,12 @@ import org.junit.After;
 import org.junit.Test;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.context.ApplicationContext;
+import org.springframework.boot.test.ApplicationContextTestUtils;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * Test for application hierarchies created using {@link SpringApplicationBuilder}.
- * 
+ *
  * @author Dave Syer
  */
 public class SpringApplicationHierarchyTests {
@@ -34,26 +34,20 @@ public class SpringApplicationHierarchyTests {
 
 	@After
 	public void after() {
-		if (this.context != null) {
-			ApplicationContext parentContext = this.context.getParent();
-			if (parentContext instanceof ConfigurableApplicationContext) {
-				((ConfigurableApplicationContext) parentContext).close();
-			}
-			this.context.close();
-		}
+		ApplicationContextTestUtils.closeAll(this.context);
 	}
 
 	@Test
 	public void testParent() {
 		SpringApplicationBuilder builder = new SpringApplicationBuilder(Child.class);
 		builder.parent(Parent.class);
-		this.context = builder.run();
+		this.context = builder.run("--server.port=0");
 	}
 
 	@Test
 	public void testChild() {
-		this.context = new SpringApplicationBuilder(Parent.class).child(Child.class)
-				.run();
+		this.context = new SpringApplicationBuilder(Parent.class).child(Child.class).run(
+				"--server.port=0");
 	}
 
 	@EnableAutoConfiguration

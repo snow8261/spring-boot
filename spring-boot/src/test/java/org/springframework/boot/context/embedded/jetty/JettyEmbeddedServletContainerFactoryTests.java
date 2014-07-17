@@ -36,7 +36,7 @@ import static org.mockito.Mockito.mock;
 /**
  * Tests for {@link JettyEmbeddedServletContainerFactory} and
  * {@link JettyEmbeddedServletContainer}.
- * 
+ *
  * @author Phillip Webb
  * @author Dave Syer
  */
@@ -45,7 +45,7 @@ public class JettyEmbeddedServletContainerFactoryTests extends
 
 	@Override
 	protected JettyEmbeddedServletContainerFactory getFactory() {
-		return new JettyEmbeddedServletContainerFactory();
+		return new JettyEmbeddedServletContainerFactory(0);
 	}
 
 	@Test

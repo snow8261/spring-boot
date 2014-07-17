@@ -16,14 +16,16 @@
 
 package org.springframework.boot.logging;
 
-import java.lang.management.ManagementFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.boot.ApplicationPid;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.bind.RelaxedPropertyResolver;
 import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.ApplicationEvent;
@@ -36,6 +38,7 @@ import org.springframework.util.ClassUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.ResourceUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * An {@link ApplicationListener} that configures a logging framework depending on what it
@@ -62,18 +65,21 @@ import org.springframework.util.ResourceUtils;
  * <li><code>PID</code> is set to the value of the current process ID if it can be
  * determined</li>
  * </ul>
- * 
+ *
  * @author Dave Syer
  * @author Phillip Webb
  */
 public class LoggingApplicationListener implements SmartApplicationListener {
 
 	private static final Map<String, String> ENVIRONMENT_SYSTEM_PROPERTY_MAPPING;
+
+	public static final String PID_KEY = "PID";
+
 	static {
 		ENVIRONMENT_SYSTEM_PROPERTY_MAPPING = new HashMap<String, String>();
 		ENVIRONMENT_SYSTEM_PROPERTY_MAPPING.put("logging.file", "LOG_FILE");
 		ENVIRONMENT_SYSTEM_PROPERTY_MAPPING.put("logging.path", "LOG_PATH");
-		ENVIRONMENT_SYSTEM_PROPERTY_MAPPING.put("PID", "PID");
+		ENVIRONMENT_SYSTEM_PROPERTY_MAPPING.put(PID_KEY, PID_KEY);
 	}
 
 	private static MultiValueMap<LogLevel, String> LOG_LEVEL_LOGGERS;
@@ -82,6 +88,7 @@ public class LoggingApplicationListener implements SmartApplicationListener {
 		LOG_LEVEL_LOGGERS.add(LogLevel.DEBUG, "org.springframework.boot");
 		LOG_LEVEL_LOGGERS.add(LogLevel.TRACE, "org.springframework");
 		LOG_LEVEL_LOGGERS.add(LogLevel.TRACE, "org.apache.tomcat");
+		LOG_LEVEL_LOGGERS.add(LogLevel.TRACE, "org.apache.catalina");
 		LOG_LEVEL_LOGGERS.add(LogLevel.TRACE, "org.eclipse.jetty");
 		LOG_LEVEL_LOGGERS.add(LogLevel.TRACE, "org.hibernate.tool.hbm2ddl");
 	}
@@ -120,8 +127,8 @@ public class LoggingApplicationListener implements SmartApplicationListener {
 					.getClassLoader());
 		}
 		else {
-			if (System.getProperty("PID") == null) {
-				System.setProperty("PID", getPid());
+			if (System.getProperty(PID_KEY) == null) {
+				System.setProperty(PID_KEY, new ApplicationPid().toString());
 			}
 			LoggingSystem loggingSystem = LoggingSystem.get(ClassUtils
 					.getDefaultClassLoader());
@@ -142,6 +149,16 @@ public class LoggingApplicationListener implements SmartApplicationListener {
 			if (environment.containsProperty("trace")) {
 				this.springBootLogging = LogLevel.TRACE;
 			}
+		}
+
+		// Logback won't read backslashes so add a clean path for it to use
+		if (!StringUtils.hasLength(System.getProperty("LOG_TEMP"))) {
+			String path = System.getProperty("java.io.tmpdir");
+			path = StringUtils.cleanPath(path);
+			if (path.endsWith("/")) {
+				path = path.substring(0, path.length() - 1);
+			}
+			System.setProperty("LOG_TEMP", path);
 		}
 
 		boolean environmentChanged = false;
@@ -166,18 +183,41 @@ public class LoggingApplicationListener implements SmartApplicationListener {
 			try {
 				ResourceUtils.getURL(value).openStream().close();
 				system.initialize(value);
-				return;
 			}
 			catch (Exception ex) {
-				// Swallow exception and continue
+				this.logger.warn("Logging environment value '" + value
+						+ "' cannot be opened and will be ignored");
 			}
-			this.logger.warn("Logging environment value '" + value
-					+ "' cannot be opened and will be ignored");
+		}
+		else {
+
+			system.initialize();
+			if (this.springBootLogging != null) {
+				initializeLogLevel(system, this.springBootLogging);
+			}
+
 		}
 
-		system.initialize();
-		if (this.springBootLogging != null) {
-			initializeLogLevel(system, this.springBootLogging);
+		setLogLevels(system, environment);
+
+	}
+
+	public void setLogLevels(LoggingSystem system, Environment environment) {
+		Map<String, Object> levels = new RelaxedPropertyResolver(environment)
+				.getSubProperties("logging.level.");
+		for (Entry<String, Object> entry : levels.entrySet()) {
+			String name = entry.getKey();
+			try {
+				LogLevel level = LogLevel.valueOf(entry.getValue().toString());
+				if (name.equalsIgnoreCase("root")) {
+					name = null;
+				}
+				system.setLogLevel(name, level);
+			}
+			catch (RuntimeException e) {
+				this.logger.error("Cannot set level: " + entry.getValue() + " for '"
+						+ name + "'");
+			}
 		}
 	}
 
@@ -188,19 +228,6 @@ public class LoggingApplicationListener implements SmartApplicationListener {
 				system.setLogLevel(logger, level);
 			}
 		}
-	}
-
-	private String getPid() {
-		try {
-			String name = ManagementFactory.getRuntimeMXBean().getName();
-			if (name != null) {
-				return name.split("@")[0];
-			}
-		}
-		catch (Throwable ex) {
-			// Ignore
-		}
-		return "????";
 	}
 
 	public void setOrder(int order) {

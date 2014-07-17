@@ -20,13 +20,16 @@ import java.util.Date;
 import java.util.Map;
 
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.authentication.configurers.GlobalAuthenticationConfigurerAdapter;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
@@ -70,17 +73,23 @@ public class SampleMethodSecurityApplication extends WebMvcConfigurerAdapter {
 		return new ApplicationSecurity();
 	}
 
-	@Order(Ordered.LOWEST_PRECEDENCE - 8)
-	protected static class ApplicationSecurity extends WebSecurityConfigurerAdapter {
+	@Order(Ordered.HIGHEST_PRECEDENCE)
+	@Configuration
+	protected static class AuthenticationSecurity extends
+			GlobalAuthenticationConfigurerAdapter {
 
 		@Override
-		protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+		public void init(AuthenticationManagerBuilder auth) throws Exception {
 			// @formatter:off
 			auth.inMemoryAuthentication().withUser("admin").password("admin")
 					.roles("ADMIN", "USER").and().withUser("user").password("user")
 					.roles("USER");
 			// @formatter:on
 		}
+	}
+
+	@Order(SecurityProperties.ACCESS_OVERRIDE_ORDER)
+	protected static class ApplicationSecurity extends WebSecurityConfigurerAdapter {
 
 		@Override
 		protected void configure(HttpSecurity http) throws Exception {

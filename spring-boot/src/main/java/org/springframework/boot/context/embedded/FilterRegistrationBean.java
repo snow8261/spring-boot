@@ -43,7 +43,7 @@ import org.springframework.util.Assert;
  * {@link #setServletNames name} or via a {@link #setServletRegistrationBeans
  * ServletRegistrationBean}s. When no URL pattern or servlets are specified the filter
  * will be associated to '/*'. The filter name will be deduced if not specified.
- * 
+ *
  * @author Phillip Webb
  * @see ServletContextInitializer
  * @see ServletContext#addFilter(String, Filter)
@@ -211,6 +211,23 @@ public class FilterRegistrationBean extends RegistrationBean {
 	}
 
 	/**
+	 * Convenience method to {@link #setDispatcherTypes(EnumSet) set dispatcher types}
+	 * using the specified elements.
+	 */
+	public void setDispatcherTypes(DispatcherType first, DispatcherType... rest) {
+		this.dispatcherTypes = EnumSet.of(first, rest);
+	}
+
+	/**
+	 * Sets the dispatcher types that should be used with the registration. If not
+	 * specified the types will be deduced based on the value of
+	 * {@link #isAsyncSupported()}.
+	 */
+	public void setDispatcherTypes(EnumSet<DispatcherType> dispatcherTypes) {
+		this.dispatcherTypes = dispatcherTypes;
+	}
+
+	/**
 	 * Set if the filter mappings should be matched after any declared filter mappings of
 	 * the ServletContext. Defaults to {@code false} indicating the filters are supposed
 	 * to be matched before any declared filter mappings of the ServletContext.
@@ -231,6 +248,10 @@ public class FilterRegistrationBean extends RegistrationBean {
 	public void onStartup(ServletContext servletContext) throws ServletException {
 		Assert.notNull(this.filter, "Filter must not be null");
 		String name = getOrDeduceName(this.filter);
+		if (!isEnabled()) {
+			logger.info("Filter " + name + " was not registered (disabled)");
+			return;
+		}
 		FilterRegistration.Dynamic added = servletContext.addFilter(name, this.filter);
 		if (added == null) {
 			logger.info("Filter " + name + " was not registered "

@@ -82,13 +82,12 @@ Here is an example ``hello world'' web application written in Groovy:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	@Controller
+	@RestController
 	class WebApplication {
 
 		@RequestMapping("/")
-		@ResponseBody
 		String home() {
-			return "Hello World!"
+			"Hello World!"
 		}
 
 	}
@@ -104,7 +103,7 @@ same way as Maven or Gradle would; but without requiring you to use a build tool
 
 Spring Boot extends this technique further, and will attempt to deduce which libraries
 to ``grab'' based on your code. For example, since the `WebApplication` code above uses
-`@Controller` annotations, ``Tomcat'' and ``Spring MVC'' will be grabbed.
+`@RestController` annotations, ``Tomcat'' and ``Spring MVC'' will be grabbed.
 
 The following items are used as ``grab hints'':
 
@@ -154,11 +153,41 @@ in the Spring Boot CLI source code to understand exactly how customizations are 
 
 
 
+[[cli-default-grab-deduced-coordinates]]
+==== Deduced ``grab'' coordinates
+Spring Boot extends Groovy's standard `@Grab` support by allowing you to specify a dependency
+without a group or version, for example `@Grab('freemarker')`. This will consult Spring Boot's
+default dependency metadata to deduce the artifact's group and version. Note that the default
+metadata is tied to the version of the CLI that you're using – it will only change when you move
+to a new version of the CLI, putting you in control of when the versions of your dependencies
+may change. A table showing the dependencies and their versions that are included in the default
+metadata can be found in the <<appendix-dependency-versions, appendix>>.
+
+
+
+[[cli-default-grab-deduced-coordinates-custom-metadata]]
+===== Custom ``grab'' metadata
+Spring Boot provides a new annotation, `@GrabMetadata` that can be used to provide custom
+dependency metadata that overrides Spring Boot's defaults. This metadata is specified by
+using this annotation to provide the coordinates of one or more properties files (deployed 
+to a Maven repository with a "type" identifier: "properties"). For example
+`@GrabMetadata(['com.example:versions-one:1.0.0', 'com.example.versions-two:1.0.0'])` will 
+pick up files in a Maven repository in "com/example/versions-*/1.0.0/versions-*-1.0.0.properties". The
+properties files are applied in the order that they're specified. In the example above, this
+means that properties in `versions-two` will override properties in `versions-one`. Each entry
+in each properties file must be in the form `group:module=version`. You can use `@GrabMetadata`
+anywhere that you can use `@Grab`, however, to ensure consistent ordering of the metadata, you
+can only use `@GrabMetadata` at most once in your application. A useful source of dependency
+metadata (a superset of Spring Boot) is the http://platform.spring.io/[Spring IO Platform], e.g.
+`@GrabMetadata('io.spring.platform:platform-versions:1.0.0.RELEASE')`.
+
+
+
 [[cli-default-import-statements]]
 ==== Default import statements
 To help reduce the size of your Groovy code, several `import` statements are
 automatically included. Notice how the example above refers to `@Component`,
-`@Controller`, `@RequestMapping` and `@ResponseBody` without needing to use
+`@RestController` and `@RequestMapping` without needing to use
 fully-qualified names or `import` statements.
 
 TIP: Many Spring annotations will work without using `import` statements. Try running
@@ -168,7 +197,7 @@ your application to see what fails before adding imports.
 
 [[cli-automatic-main-method]]
 ==== Automatic main method
-Unlike the equilvement Java application, you do not need to include a
+Unlike the equivalent Java application, you do not need to include a
 `public static void main(String[] args)` method with your `Groovy` scripts. A
 `SpringApplication` is automatically created, with your compiled code acting as the
 `source`.
@@ -191,7 +220,7 @@ In this example, `tests.groovy` contains JUnit `@Test` methods or Spock `Specifi
 classes. All the common framework annotations and static methods should be available to
 you without having to `import` them.
 
-Here is the `test.groovy` file that we used above:
+Here is the `test.groovy` file that we used above (with a JUnit test):
 
 [source,groovy,indent=0]
 ----
@@ -242,7 +271,22 @@ executable jar file. For example:
 
 The resulting jar will contain the classes produced by compiling the application and all
 of the application's dependencies so that it can then be run using `java -jar`. The jar
-file will also contain entries from the application's classpath.
+file will also contain entries from the application's classpath. You can add explicit
+paths to the jar using `--include` and `--exclude` (both are comma separated, and both
+accept prefixes to the values ``+'' and ``-'' to signify that they should be removed from
+the defaults). The default includes are
+
+[indent=0]
+----
+	public/**, resources/**, static/**, templates/**, META-INF/**, *
+----
+
+and the default excludes are
+
+[indent=0]
+----
+	.*, repository/**, build/**, target/**, **/*.jar, **/*.groovy
+----
 
 See the output of `spring help jar` for more information.
 
@@ -299,7 +343,7 @@ external features like middleware declarations. For example:
 
 	beans {
 		service(SharedService) {
-			message "Hello World"
+			message = "Hello World"
 		}
 	}
 ----

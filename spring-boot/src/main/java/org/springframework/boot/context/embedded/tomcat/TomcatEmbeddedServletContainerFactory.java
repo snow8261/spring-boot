@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import javax.servlet.ServletContainerInitializer;
 import javax.servlet.ServletContext;
 
 import org.apache.catalina.Context;
@@ -62,7 +63,7 @@ import org.springframework.util.StreamUtils;
  * <p>
  * Unless explicitly configured otherwise this factory will created containers that
  * listens for HTTP requests on port 8080.
- * 
+ *
  * @author Phillip Webb
  * @author Dave Syer
  * @author Brock Mills
@@ -167,6 +168,7 @@ public class TomcatEmbeddedServletContainerFactory extends
 				&& ClassUtils.isPresent(getJspServletClassName(), getClass()
 						.getClassLoader())) {
 			addJspServlet(context);
+			addJasperInitializer(context);
 			context.addLifecycleListener(new StoreMergedWebXmlListener());
 		}
 		ServletContextInitializer[] initializersToUse = mergeInitializers(initializers);
@@ -199,6 +201,18 @@ public class TomcatEmbeddedServletContainerFactory extends
 		context.addServletMapping("*.jspx", "jsp");
 	}
 
+	private void addJasperInitializer(TomcatEmbeddedContext context) {
+		try {
+			ServletContainerInitializer initializer = (ServletContainerInitializer) ClassUtils
+					.forName("org.apache.jasper.servlet.JasperInitializer", null)
+					.newInstance();
+			context.addServletContainerInitializer(initializer, null);
+		}
+		catch (Exception ex) {
+			// Probably not Tomcat 8
+		}
+	}
+
 	// Needs to be protected so it can be used by subclasses
 	protected void customizeConnector(Connector connector) {
 		int port = (getPort() >= 0 ? getPort() : 0);
@@ -228,8 +242,13 @@ public class TomcatEmbeddedServletContainerFactory extends
 	 */
 	protected void configureContext(Context context,
 			ServletContextInitializer[] initializers) {
-		context.addLifecycleListener(new ServletContextInitializerLifecycleListener(
-				initializers));
+		ServletContextInitializerLifecycleListener starter = new ServletContextInitializerLifecycleListener(
+				initializers);
+		if (context instanceof TomcatEmbeddedContext) {
+			// Should be true
+			((TomcatEmbeddedContext) context).setStarter(starter);
+		}
+		context.addLifecycleListener(starter);
 		for (LifecycleListener lifecycleListener : this.contextLifecycleListeners) {
 			context.addLifecycleListener(lifecycleListener);
 		}
@@ -565,6 +584,7 @@ public class TomcatEmbeddedServletContainerFactory extends
 			if (servletContext.getAttribute(this.MERGED_WEB_XML) == null) {
 				servletContext.setAttribute(this.MERGED_WEB_XML, getEmptyWebXml());
 			}
+			TomcatResources.get(context).addClasspathResources();
 		}
 
 		private String getEmptyWebXml() {

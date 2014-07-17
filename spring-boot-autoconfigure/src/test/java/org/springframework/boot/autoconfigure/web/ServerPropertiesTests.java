@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link ServerProperties}.
- * 
+ *
  * @author Dave Syer
  * @author Stephane Nicoll
  */
@@ -56,6 +56,26 @@ public class ServerPropertiesTests {
 		new RelaxedDataBinder(this.properties, "server").bind(new MutablePropertyValues(
 				Collections.singletonMap("server.port", "9000")));
 		assertEquals(9000, this.properties.getPort().intValue());
+	}
+
+	@Test
+	public void testServletPathAsMapping() throws Exception {
+		RelaxedDataBinder binder = new RelaxedDataBinder(this.properties, "server");
+		binder.bind(new MutablePropertyValues(Collections.singletonMap(
+				"server.servletPath", "/foo/*")));
+		assertFalse(binder.getBindingResult().hasErrors());
+		assertEquals("/foo/*", this.properties.getServletMapping());
+		assertEquals("/foo", this.properties.getServletPrefix());
+	}
+
+	@Test
+	public void testServletPathAsPrefix() throws Exception {
+		RelaxedDataBinder binder = new RelaxedDataBinder(this.properties, "server");
+		binder.bind(new MutablePropertyValues(Collections.singletonMap(
+				"server.servletPath", "/foo")));
+		assertFalse(binder.getBindingResult().hasErrors());
+		assertEquals("/foo/*", this.properties.getServletMapping());
+		assertEquals("/foo", this.properties.getServletPrefix());
 	}
 
 	@Test
@@ -95,6 +115,15 @@ public class ServerPropertiesTests {
 		new RelaxedDataBinder(this.properties, "server").bind(new MutablePropertyValues(
 				map));
 		assertEquals("US-ASCII", this.properties.getTomcat().getUriEncoding());
+	}
+
+	@Test
+	public void testCustomizeTomcatHeaderSize() throws Exception {
+		Map<String, String> map = new HashMap<String, String>();
+		map.put("server.tomcat.maxHttpHeaderSize", "9999");
+		new RelaxedDataBinder(this.properties, "server").bind(new MutablePropertyValues(
+				map));
+		assertEquals(9999, this.properties.getTomcat().getMaxHttpHeaderSize());
 	}
 
 }

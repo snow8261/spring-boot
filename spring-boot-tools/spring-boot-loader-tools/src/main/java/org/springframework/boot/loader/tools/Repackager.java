@@ -20,17 +20,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
-
-import org.springframework.boot.loader.tools.MainClassFinder.ClassNameCallback;
 
 /**
  * Utility class that can be used to repackage an archive so that it can be executed using
  * '{@literal java -jar}'.
- * 
+ *
  * @author Phillip Webb
  */
 public class Repackager {
@@ -145,12 +141,13 @@ public class Repackager {
 
 			libraries.doWithLibraries(new LibraryCallback() {
 				@Override
-				public void library(File file, LibraryScope scope) throws IOException {
+				public void library(Library library) throws IOException {
+					File file = library.getFile();
 					if (isZip(file)) {
 						String destination = Repackager.this.layout
-								.getLibraryDestination(file.getName(), scope);
+								.getLibraryDestination(file.getName(), library.getScope());
 						if (destination != null) {
-							writer.writeNestedLibrary(destination, file);
+							writer.writeNestedLibrary(destination, library);
 						}
 					}
 				}
@@ -228,10 +225,8 @@ public class Repackager {
 	}
 
 	protected String findMainMethod(JarFile source) throws IOException {
-		MainClassesCallback callback = new MainClassesCallback();
-		MainClassFinder.doWithMainClasses(source, this.layout.getClassesLocation(),
-				callback);
-		return callback.getMainClass();
+		return MainClassFinder.findSingleMainClass(source,
+				this.layout.getClassesLocation());
 	}
 
 	private void renameFile(File file, File dest) {
@@ -247,24 +242,4 @@ public class Repackager {
 		}
 	}
 
-	private static class MainClassesCallback implements ClassNameCallback<Object> {
-
-		private final List<String> classNames = new ArrayList<String>();
-
-		@Override
-		public Object doWith(String className) {
-			this.classNames.add(className);
-			return null;
-		}
-
-		public String getMainClass() {
-			if (this.classNames.size() > 1) {
-				throw new IllegalStateException(
-						"Unable to find a single main class from the following candidates "
-								+ this.classNames);
-			}
-			return this.classNames.isEmpty() ? null : this.classNames.get(0);
-		}
-
-	}
 }

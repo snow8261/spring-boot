@@ -1,9 +1,9 @@
 /*
- * originright 2012-2013 the copyal author or authors.
+ * Copyright 2012-2014 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
- * You may obtain a origin of the License at
+ * You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -17,37 +17,76 @@
 package org.springframework.boot.loader.tools;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * Utilities for manipulating files and directories in Spring Boot tooling.
- * 
+ *
  * @author Dave Syer
+ * @author Phillip Webb
  */
-public class FileUtils {
+public abstract class FileUtils {
 
 	/**
-	 * Utility to remove duplicate files from a "copy" directory if they already exist in
-	 * an "origin". Recursively scans the origin directory looking for files (not
+	 * Utility to remove duplicate files from an "output" directory if they already exist
+	 * in an "origin". Recursively scans the origin directory looking for files (not
 	 * directories) that exist in both places and deleting the copy.
-	 * 
-	 * @param copy the copy directory
-	 * @param origin the origin directory
+	 * @param outputDirectory the output directory
+	 * @param originDirectory the origin directory
 	 */
-	public static void removeDuplicatesFromCopy(File copy, File origin) {
-		if (origin.isDirectory()) {
-			for (String name : origin.list()) {
-				File targetFile = new File(copy, name);
+	public static void removeDuplicatesFromOutputDirectory(File outputDirectory,
+			File originDirectory) {
+		if (originDirectory.isDirectory()) {
+			for (String name : originDirectory.list()) {
+				File targetFile = new File(outputDirectory, name);
 				if (targetFile.exists() && targetFile.canWrite()) {
 					if (!targetFile.isDirectory()) {
 						targetFile.delete();
 					}
 					else {
-						FileUtils.removeDuplicatesFromCopy(targetFile, new File(origin,
-								name));
+						FileUtils.removeDuplicatesFromOutputDirectory(targetFile,
+								new File(originDirectory, name));
 					}
 				}
 			}
 		}
 	}
 
+	/**
+	 * Generate a SHA.1 Hash for a given file.
+	 * @param file the file to hash
+	 * @return the hash value as a String
+	 * @throws IOException
+	 */
+	public static String sha1Hash(File file) throws IOException {
+		try {
+			DigestInputStream inputStream = new DigestInputStream(new FileInputStream(
+					file), MessageDigest.getInstance("SHA-1"));
+			try {
+				byte[] buffer = new byte[4098];
+				while (inputStream.read(buffer) != -1) {
+					// Read the entire stream
+				}
+				return bytesToHex(inputStream.getMessageDigest().digest());
+			}
+			finally {
+				inputStream.close();
+			}
+		}
+		catch (NoSuchAlgorithmException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private static String bytesToHex(byte[] bytes) {
+		StringBuilder hex = new StringBuilder();
+		for (byte b : bytes) {
+			hex.append(String.format("%02x", b));
+		}
+		return hex.toString();
+	}
 }

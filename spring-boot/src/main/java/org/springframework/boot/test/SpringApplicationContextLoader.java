@@ -16,12 +16,17 @@
 
 package org.springframework.boot.test;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import org.springframework.beans.BeanUtils;
@@ -31,6 +36,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.core.SpringVersion;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.test.context.ContextConfigurationAttributes;
 import org.springframework.test.context.ContextLoader;
@@ -41,6 +49,7 @@ import org.springframework.test.context.web.WebAppConfiguration;
 import org.springframework.test.context.web.WebMergedContextConfiguration;
 import org.springframework.util.ObjectUtils;
 import org.springframework.web.context.support.GenericWebApplicationContext;
+import org.springframework.web.context.support.StandardServletEnvironment;
 
 /**
  * A {@link ContextLoader} that can be used to test Spring Boot applications (those that
@@ -58,26 +67,37 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
  * <p>
  * If <code>@ActiveProfiles</code> are provided in the test class they will be used to
  * create the application context.
- * 
+ *
  * @author Dave Syer
  * @see IntegrationTest
  */
 public class SpringApplicationContextLoader extends AbstractContextLoader {
 
-	@Override
-	public ApplicationContext loadContext(MergedContextConfiguration mergedConfig)
-			throws Exception {
+	private static final String LINE_SEPARATOR = System.getProperty("line.separator");
 
+	@Override
+	public ApplicationContext loadContext(MergedContextConfiguration config)
+			throws Exception {
 		SpringApplication application = getSpringApplication();
-		application.setSources(getSources(mergedConfig));
-		if (!ObjectUtils.isEmpty(mergedConfig.getActiveProfiles())) {
-			application.setAdditionalProfiles(mergedConfig.getActiveProfiles());
+		application.setSources(getSources(config));
+		if (!ObjectUtils.isEmpty(config.getActiveProfiles())) {
+			application.setAdditionalProfiles(config.getActiveProfiles());
 		}
-		application.setDefaultProperties(getArgs(mergedConfig));
-		List<ApplicationContextInitializer<?>> initializers = getInitializers(
-				mergedConfig, application);
-		if (mergedConfig instanceof WebMergedContextConfiguration) {
-			new WebConfigurer().configure(mergedConfig, application, initializers);
+		ConfigurableEnvironment environment = new StandardEnvironment();
+		if (config instanceof WebMergedContextConfiguration) {
+			environment = new StandardServletEnvironment();
+		}
+		// Ensure @IntegrationTest properties go before external config and after system
+		environment.getPropertySources()
+				.addAfter(
+						StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+						new MapPropertySource("integrationTest",
+								getEnvironmentProperties(config)));
+		application.setEnvironment(environment);
+		List<ApplicationContextInitializer<?>> initializers = getInitializers(config,
+				application);
+		if (config instanceof WebMergedContextConfiguration) {
+			new WebConfigurer().configure(config, application, initializers);
 		}
 		else {
 			application.setWebEnvironment(false);
@@ -133,21 +153,59 @@ public class SpringApplicationContextLoader extends AbstractContextLoader {
 				.detectDefaultConfigurationClasses(declaringClass);
 	}
 
-	private Map<String, Object> getArgs(MergedContextConfiguration mergedConfig) {
-		Map<String, Object> args = new LinkedHashMap<String, Object>();
-		if (AnnotationUtils.findAnnotation(mergedConfig.getTestClass(),
-				IntegrationTest.class) == null) {
-			// Not running an embedded server, just setting up web context
-			args.put("server.port", "-1");
-		}
+	protected Map<String, Object> getEnvironmentProperties(
+			MergedContextConfiguration config) {
+		Map<String, Object> properties = new LinkedHashMap<String, Object>();
 		// JMX bean names will clash if the same bean is used in multiple contexts
-		args.put("spring.jmx.enabled", "false");
-		return args;
+		disableJmx(properties);
+		IntegrationTest annotation = AnnotationUtils.findAnnotation(
+				config.getTestClass(), IntegrationTest.class);
+		properties.putAll(getEnvironmentProperties(annotation));
+		return properties;
+	}
+
+	private void disableJmx(Map<String, Object> properties) {
+		properties.put("spring.jmx.enabled", "false");
+	}
+
+	private Map<String, String> getEnvironmentProperties(IntegrationTest annotation) {
+		if (annotation == null) {
+			return getDefaultEnvironmentProperties();
+		}
+		return extractEnvironmentProperties(annotation.value());
+	}
+
+	private Map<String, String> getDefaultEnvironmentProperties() {
+		return Collections.singletonMap("server.port", "-1");
+	}
+
+	// Instead of parsing the keys ourselves, we rely on standard handling
+	private Map<String, String> extractEnvironmentProperties(String[] values) {
+		StringBuilder sb = new StringBuilder();
+		for (String value : values) {
+			sb.append(value).append(LINE_SEPARATOR);
+		}
+		String content = sb.toString();
+		Properties props = new Properties();
+		try {
+			props.load(new StringReader(content));
+		}
+		catch (IOException e) {
+			throw new IllegalStateException("Unexpected could not load properties from '"
+					+ content + "'", e);
+		}
+
+		Map<String, String> properties = new HashMap<String, String>();
+		for (String name : props.stringPropertyNames()) {
+			properties.put(name, props.getProperty(name));
+		}
+		return properties;
 	}
 
 	private List<ApplicationContextInitializer<?>> getInitializers(
 			MergedContextConfiguration mergedConfig, SpringApplication application) {
 		List<ApplicationContextInitializer<?>> initializers = new ArrayList<ApplicationContextInitializer<?>>();
+		initializers.add(new ServerPortInfoApplicationContextInitializer());
 		initializers.addAll(application.getInitializers());
 		for (Class<? extends ApplicationContextInitializer<?>> initializerClass : mergedConfig
 				.getContextInitializerClasses()) {

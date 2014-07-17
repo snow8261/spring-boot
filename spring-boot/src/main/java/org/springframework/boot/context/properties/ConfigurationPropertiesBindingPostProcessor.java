@@ -17,6 +17,7 @@
 package org.springframework.boot.context.properties;
 
 import java.io.IOException;
+import java.util.Iterator;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanCreationException;
@@ -60,7 +61,7 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 /**
  * {@link BeanPostProcessor} to bind {@link PropertySources} to beans annotated with
  * {@link ConfigurationProperties}.
- * 
+ *
  * @author Dave Syer
  * @author Phillip Webb
  * @author Christian Dupuis
@@ -73,6 +74,8 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 
 	private static final String[] VALIDATOR_CLASSES = { "javax.validation.Validator",
 			"javax.validation.ValidatorFactory" };
+
+	private ConfigurationBeanFactoryMetaData beans = new ConfigurationBeanFactoryMetaData();
 
 	private PropertySources propertySources;
 
@@ -130,6 +133,13 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 	 */
 	public void setConversionService(ConversionService conversionService) {
 		this.conversionService = conversionService;
+	}
+
+	/**
+	 * @param beans the bean meta data to set
+	 */
+	public void setBeanMetaDataStore(ConfigurationBeanFactoryMetaData beans) {
+		this.beans = beans;
 	}
 
 	@Override
@@ -196,15 +206,18 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 		try {
 			PropertySourcesPlaceholderConfigurer configurer = this.beanFactory
 					.getBean(PropertySourcesPlaceholderConfigurer.class);
-			return extractPropertySources(configurer);
+			PropertySources propertySources = configurer.getAppliedPropertySources();
+			// Flatten the sources into a single list so they can be iterated
+			return new FlatPropertySources(propertySources);
 		}
 		catch (NoSuchBeanDefinitionException ex) {
 			// Continue if no PropertySourcesPlaceholderConfigurer bean
 		}
 
 		if (this.environment instanceof ConfigurableEnvironment) {
-			return flattenPropertySources(((ConfigurableEnvironment) this.environment)
-					.getPropertySources());
+			MutablePropertySources propertySources = ((ConfigurableEnvironment) this.environment)
+					.getPropertySources();
+			return new FlatPropertySources(propertySources);
 		}
 
 		// empty, so not very useful, but fulfils the contract
@@ -220,61 +233,17 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 		}
 	}
 
-	/**
-	 * Convenience method to extract PropertySources from an existing (and already
-	 * initialized) PropertySourcesPlaceholderConfigurer. As long as this method is
-	 * executed late enough in the context lifecycle it will come back with data. We can
-	 * rely on the fact that PropertySourcesPlaceholderConfigurer is a
-	 * BeanFactoryPostProcessor and is therefore initialized early.
-	 * @param configurer a PropertySourcesPlaceholderConfigurer
-	 * @return some PropertySources
-	 */
-	private PropertySources extractPropertySources(
-			PropertySourcesPlaceholderConfigurer configurer) {
-		PropertySources propertySources = configurer.getAppliedPropertySources();
-		// Flatten the sources into a single list so they can be iterated
-		return flattenPropertySources(propertySources);
-	}
-
-	/**
-	 * Flatten out a tree of property sources.
-	 * @param propertySources some PropertySources, possibly containing environment
-	 * properties
-	 * @return another PropertySources containing the same properties
-	 */
-	private PropertySources flattenPropertySources(PropertySources propertySources) {
-		MutablePropertySources result = new MutablePropertySources();
-		for (PropertySource<?> propertySource : propertySources) {
-			flattenPropertySources(propertySource, result);
-		}
-		return result;
-	}
-
-	/**
-	 * Convenience method to allow recursive flattening of property sources.
-	 * @param propertySource a property source to flatten
-	 * @param result the cumulative result
-	 */
-	private void flattenPropertySources(PropertySource<?> propertySource,
-			MutablePropertySources result) {
-		Object source = propertySource.getSource();
-		if (source instanceof ConfigurableEnvironment) {
-			ConfigurableEnvironment environment = (ConfigurableEnvironment) source;
-			for (PropertySource<?> childSource : environment.getPropertySources()) {
-				flattenPropertySources(childSource, result);
-			}
-		}
-		else {
-			result.addLast(propertySource);
-		}
-	}
-
 	@Override
 	public Object postProcessBeforeInitialization(Object bean, String beanName)
 			throws BeansException {
 		ConfigurationProperties annotation = AnnotationUtils.findAnnotation(
 				bean.getClass(), ConfigurationProperties.class);
 		if (annotation != null || bean instanceof ConfigurationPropertiesHolder) {
+			postProcessBeforeInitialization(bean, beanName, annotation);
+		}
+		annotation = this.beans.findFactoryAnnotation(beanName,
+				ConfigurationProperties.class);
+		if (annotation != null) {
 			postProcessBeforeInitialization(bean, beanName, annotation);
 		}
 		return bean;
@@ -353,9 +322,9 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 	}
 
 	private ConversionService getDefaultConversionService() {
-		if (!this.initialized && this.beanFactory instanceof ListableBeanFactory) {
+		if (!this.initialized) {
 			for (Converter<?, ?> converter : ((ListableBeanFactory) this.beanFactory)
-					.getBeansOfType(Converter.class).values()) {
+					.getBeansOfType(Converter.class, false, false).values()) {
 				this.defaultConversionService.addConverter(converter);
 			}
 		}
@@ -406,6 +375,58 @@ public class ConfigurationPropertiesBindingPostProcessor implements BeanPostProc
 				if (validator.supports(target.getClass())) {
 					validator.validate(target, errors);
 				}
+			}
+		}
+
+	}
+
+	/**
+	 * Convenience class to flatten out a tree of property sources without losing the
+	 * reference to the backing data (which can therefore be updated in the background).
+	 */
+	private static class FlatPropertySources implements PropertySources {
+
+		private PropertySources propertySources;
+
+		public FlatPropertySources(PropertySources propertySources) {
+			this.propertySources = propertySources;
+		}
+
+		@Override
+		public Iterator<PropertySource<?>> iterator() {
+			MutablePropertySources result = getFlattened();
+			return result.iterator();
+		}
+
+		@Override
+		public boolean contains(String name) {
+			return get(name) != null;
+		}
+
+		@Override
+		public PropertySource<?> get(String name) {
+			return getFlattened().get(name);
+		}
+
+		private MutablePropertySources getFlattened() {
+			MutablePropertySources result = new MutablePropertySources();
+			for (PropertySource<?> propertySource : this.propertySources) {
+				flattenPropertySources(propertySource, result);
+			}
+			return result;
+		}
+
+		private void flattenPropertySources(PropertySource<?> propertySource,
+				MutablePropertySources result) {
+			Object source = propertySource.getSource();
+			if (source instanceof ConfigurableEnvironment) {
+				ConfigurableEnvironment environment = (ConfigurableEnvironment) source;
+				for (PropertySource<?> childSource : environment.getPropertySources()) {
+					flattenPropertySources(childSource, result);
+				}
+			}
+			else {
+				result.addLast(propertySource);
 			}
 		}
 

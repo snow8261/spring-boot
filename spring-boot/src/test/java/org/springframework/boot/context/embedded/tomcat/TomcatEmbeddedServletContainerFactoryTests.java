@@ -17,21 +17,27 @@
 package org.springframework.boot.context.embedded.tomcat;
 
 import java.util.Arrays;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleEvent;
 import org.apache.catalina.LifecycleListener;
+import org.apache.catalina.LifecycleState;
+import org.apache.catalina.Service;
 import org.apache.catalina.Valve;
 import org.apache.catalina.connector.Connector;
 import org.apache.catalina.startup.Tomcat;
 import org.junit.Test;
 import org.mockito.InOrder;
 import org.springframework.boot.context.embedded.AbstractEmbeddedServletContainerFactoryTests;
+import org.springframework.util.SocketUtils;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyObject;
 import static org.mockito.Mockito.inOrder;
@@ -41,7 +47,7 @@ import static org.mockito.Mockito.verify;
 /**
  * Tests for {@link TomcatEmbeddedServletContainerFactory} and
  * {@link TomcatEmbeddedServletContainer}.
- * 
+ *
  * @author Phillip Webb
  * @author Dave Syer
  * @author Stephane Nicoll
@@ -51,7 +57,7 @@ public class TomcatEmbeddedServletContainerFactoryTests extends
 
 	@Override
 	protected TomcatEmbeddedServletContainerFactory getFactory() {
-		return new TomcatEmbeddedServletContainerFactory();
+		return new TomcatEmbeddedServletContainerFactory(0);
 	}
 
 	// JMX MBean names clash if you get more than one Engine with the same name...
@@ -59,12 +65,16 @@ public class TomcatEmbeddedServletContainerFactoryTests extends
 	public void tomcatEngineNames() throws Exception {
 		TomcatEmbeddedServletContainerFactory factory = getFactory();
 		this.container = factory.getEmbeddedServletContainer();
-		factory.setPort(8081);
+		factory.setPort(SocketUtils.findAvailableTcpPort(40000));
 		TomcatEmbeddedServletContainer container2 = (TomcatEmbeddedServletContainer) factory
 				.getEmbeddedServletContainer();
-		assertEquals("Tomcat", ((TomcatEmbeddedServletContainer) this.container)
-				.getTomcat().getEngine().getName());
-		assertEquals("Tomcat-1", container2.getTomcat().getEngine().getName());
+
+		// Make sure that the names are different
+		String firstContainerName = ((TomcatEmbeddedServletContainer) this.container)
+				.getTomcat().getEngine().getName();
+		String secondContainerName = container2.getTomcat().getEngine().getName();
+		assertFalse("Tomcat engines must have different names",
+				firstContainerName.equals(secondContainerName));
 		container2.stop();
 	}
 
@@ -121,11 +131,16 @@ public class TomcatEmbeddedServletContainerFactoryTests extends
 		TomcatEmbeddedServletContainerFactory factory = getFactory();
 		Connector[] listeners = new Connector[4];
 		for (int i = 0; i < listeners.length; i++) {
-			listeners[i] = mock(Connector.class);
+			Connector connector = mock(Connector.class);
+			given(connector.getState()).willReturn(LifecycleState.STOPPED);
+			listeners[i] = connector;
 		}
 		factory.addAdditionalTomcatConnectors(listeners);
 		this.container = factory.getEmbeddedServletContainer();
-		assertEquals(listeners.length, factory.getAdditionalTomcatConnectors().size());
+		Map<Service, Connector[]> connectors = ((TomcatEmbeddedServletContainer) this.container)
+				.getServiceConnectors();
+		assertThat(connectors.values().iterator().next().length,
+				equalTo(listeners.length + 1));
 	}
 
 	@Test

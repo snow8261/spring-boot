@@ -41,7 +41,7 @@ import org.springframework.util.Assert;
  * The {@link #setServlet(Servlet) servlet} must be specified before calling
  * {@link #onStartup}. URL mapping can be configured used {@link #setUrlMappings} or
  * omitted when mapping to '/*'. The servlet name will be deduced if not specified.
- * 
+ *
  * @author Phillip Webb
  * @see ServletContextInitializer
  * @see ServletContext#addServlet(String, Servlet)
@@ -158,6 +158,10 @@ public class ServletRegistrationBean extends RegistrationBean {
 	public void onStartup(ServletContext servletContext) throws ServletException {
 		Assert.notNull(this.servlet, "Servlet must not be null");
 		String name = getServletName();
+		if (!isEnabled()) {
+			logger.info("Filter " + name + " was not registered (disabled)");
+			return;
+		}
 		logger.info("Mapping servlet: '" + name + "' to " + this.urlMappings);
 		Dynamic added = servletContext.addServlet(name, this.servlet);
 		if (added == null) {

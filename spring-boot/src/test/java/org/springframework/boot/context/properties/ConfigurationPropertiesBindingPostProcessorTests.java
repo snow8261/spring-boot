@@ -22,25 +22,29 @@ import javax.validation.constraints.NotNull;
 import org.junit.After;
 import org.junit.Test;
 import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.EnvironmentTestUtils;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.validation.BindException;
 import org.springframework.validation.Errors;
 import org.springframework.validation.ValidationUtils;
 import org.springframework.validation.Validator;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 /**
- * 
  * Tests for {@link ConfigurationPropertiesBindingPostProcessor}.
- * 
+ *
  * @author Christian Dupuis
+ * @author Phillip Webb
  */
 public class ConfigurationPropertiesBindingPostProcessorTests {
 
@@ -64,7 +68,7 @@ public class ConfigurationPropertiesBindingPostProcessorTests {
 		}
 		catch (BeanCreationException ex) {
 			BindException bex = (BindException) ex.getRootCause();
-			assertTrue(1 == bex.getErrorCount());
+			assertEquals(1, bex.getErrorCount());
 		}
 	}
 
@@ -78,7 +82,7 @@ public class ConfigurationPropertiesBindingPostProcessorTests {
 		}
 		catch (BeanCreationException ex) {
 			BindException bex = (BindException) ex.getRootCause();
-			assertTrue(1 == bex.getErrorCount());
+			assertEquals(1, bex.getErrorCount());
 		}
 	}
 
@@ -92,7 +96,7 @@ public class ConfigurationPropertiesBindingPostProcessorTests {
 		}
 		catch (BeanCreationException ex) {
 			BindException bex = (BindException) ex.getRootCause();
-			assertTrue(2 == bex.getErrorCount());
+			assertEquals(2, bex.getErrorCount());
 		}
 	}
 
@@ -115,6 +119,26 @@ public class ConfigurationPropertiesBindingPostProcessorTests {
 		this.context.setEnvironment(env);
 		this.context.register(TestConfigurationWithInitializer.class);
 		this.context.refresh();
+	}
+
+	@Test
+	public void testPropertyWithEnum() throws Exception {
+		this.context = new AnnotationConfigApplicationContext();
+		EnvironmentTestUtils.addEnvironment(this.context, "test.value:foo");
+		this.context.register(PropertyWithEnum.class);
+		this.context.refresh();
+		assertThat(this.context.getBean(PropertyWithEnum.class).getValue(),
+				equalTo(FooEnum.FOO));
+	}
+
+	@Test
+	public void testValueBindingForDefaults() throws Exception {
+		this.context = new AnnotationConfigApplicationContext();
+		EnvironmentTestUtils.addEnvironment(this.context, "default.value:foo");
+		this.context.register(PropertyWithValue.class);
+		this.context.refresh();
+		assertThat(this.context.getBean(PropertyWithValue.class).getValue(),
+				equalTo("foo"));
 	}
 
 	@Configuration
@@ -228,6 +252,51 @@ public class ConfigurationPropertiesBindingPostProcessorTests {
 		public String getBar() {
 			return this.bar;
 		}
+
+	}
+
+	@Configuration
+	@EnableConfigurationProperties
+	@ConfigurationProperties(prefix = "test")
+	public static class PropertyWithEnum {
+
+		private FooEnum value;
+
+		public void setValue(FooEnum value) {
+			this.value = value;
+		}
+
+		public FooEnum getValue() {
+			return this.value;
+		}
+
+	}
+
+	static enum FooEnum {
+		FOO, BAZ, BAR
+	}
+
+	@Configuration
+	@EnableConfigurationProperties
+	@ConfigurationProperties(prefix = "test")
+	public static class PropertyWithValue {
+
+		@Value("${default.value}")
+		private String value;
+
+		public void setValue(String value) {
+			this.value = value;
+		}
+
+		public String getValue() {
+			return this.value;
+		}
+
+		@Bean
+		public static PropertySourcesPlaceholderConfigurer configurer() {
+			return new PropertySourcesPlaceholderConfigurer();
+		}
+
 	}
 
 }

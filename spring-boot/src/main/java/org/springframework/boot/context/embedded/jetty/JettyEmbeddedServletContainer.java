@@ -21,6 +21,7 @@ import org.apache.commons.logging.LogFactory;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.handler.HandlerWrapper;
 import org.springframework.boot.context.embedded.EmbeddedServletContainer;
 import org.springframework.boot.context.embedded.EmbeddedServletContainerException;
 import org.springframework.util.Assert;
@@ -30,7 +31,7 @@ import org.springframework.util.ReflectionUtils;
  * {@link EmbeddedServletContainer} that can be used to control an embedded Jetty server.
  * Usually this class should be created using the
  * {@link JettyEmbeddedServletContainerFactory} and not directly.
- * 
+ *
  * @author Phillip Webb
  * @author Dave Syer
  * @see JettyEmbeddedServletContainerFactory
@@ -74,6 +75,12 @@ public class JettyEmbeddedServletContainer implements EmbeddedServletContainer {
 			}
 		}
 		catch (Exception ex) {
+			try {
+				// Ensure process isn't left running
+				this.server.stop();
+			}
+			catch (Exception e) {
+			}
 			throw new EmbeddedServletContainerException(
 					"Unable to start embedded Jetty servlet container", ex);
 		}
@@ -87,9 +94,7 @@ public class JettyEmbeddedServletContainer implements EmbeddedServletContainer {
 		try {
 			this.server.start();
 			for (Handler handler : this.server.getHandlers()) {
-				if (handler instanceof JettyEmbeddedWebAppContext) {
-					((JettyEmbeddedWebAppContext) handler).deferredInitialize();
-				}
+				handleDeferredInitialize(handler);
 			}
 			Connector[] connectors = this.server.getConnectors();
 			for (Connector connector : connectors) {
@@ -103,15 +108,25 @@ public class JettyEmbeddedServletContainer implements EmbeddedServletContainer {
 		}
 	}
 
-	private String getLocalPort(Connector connector) {
+	private void handleDeferredInitialize(Handler handler) throws Exception {
+		if (handler instanceof JettyEmbeddedWebAppContext) {
+			((JettyEmbeddedWebAppContext) handler).deferredInitialize();
+		}
+		else if (handler instanceof HandlerWrapper) {
+			handleDeferredInitialize(((HandlerWrapper) handler).getHandler());
+		}
+	}
+
+	private Integer getLocalPort(Connector connector) {
 		try {
 			// Jetty 9 internals are different, but the method name is the same
-			return ((Integer) ReflectionUtils.invokeMethod(
+			return (Integer) ReflectionUtils.invokeMethod(
 					ReflectionUtils.findMethod(connector.getClass(), "getLocalPort"),
-					connector)).toString();
+					connector);
 		}
 		catch (Exception ex) {
-			return "could not determine port ( " + ex.getMessage() + ")";
+			this.logger.info("could not determine port ( " + ex.getMessage() + ")");
+			return 0;
 		}
 	}
 
@@ -134,7 +149,7 @@ public class JettyEmbeddedServletContainer implements EmbeddedServletContainer {
 		Connector[] connectors = this.server.getConnectors();
 		for (Connector connector : connectors) {
 			// Probably only one...
-			return connector.getLocalPort();
+			return getLocalPort(connector);
 		}
 		return 0;
 	}

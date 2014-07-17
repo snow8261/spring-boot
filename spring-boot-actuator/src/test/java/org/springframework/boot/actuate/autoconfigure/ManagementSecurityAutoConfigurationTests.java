@@ -40,6 +40,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 
 import static org.junit.Assert.assertEquals;
@@ -48,7 +49,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Tests for {@link ManagementSecurityAutoConfiguration}.
- * 
+ *
  * @author Dave Syer
  */
 public class ManagementSecurityAutoConfigurationTests {
@@ -77,6 +78,12 @@ public class ManagementSecurityAutoConfigurationTests {
 		// 6 for static resources, one for management endpoints and one for the rest
 		assertEquals(8, this.context.getBean(FilterChainProxy.class).getFilterChains()
 				.size());
+	}
+
+	@Test
+	public void testPathNormalization() throws Exception {
+		String path = "admin/./error";
+		assertEquals("admin/error", StringUtils.cleanPath(path));
 	}
 
 	@Test
@@ -138,8 +145,9 @@ public class ManagementSecurityAutoConfigurationTests {
 				PropertyPlaceholderAutoConfiguration.class);
 		EnvironmentTestUtils.addEnvironment(this.context, "security.basic.enabled:false");
 		this.context.refresh();
-		// Just the management endpoints (one filter) and ignores now
-		assertEquals(7, this.context.getBean(FilterChainProxy.class).getFilterChains()
+		// Just the management endpoints (one filter) and ignores now plus the backup
+		// filter on app endpoints
+		assertEquals(8, this.context.getBean(FilterChainProxy.class).getFilterChains()
 				.size());
 	}
 

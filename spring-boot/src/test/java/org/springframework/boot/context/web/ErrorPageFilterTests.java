@@ -34,10 +34,11 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Tests for {@link ErrorPageFilter}.
- * 
+ *
  * @author Dave Syer
  */
 public class ErrorPageFilterTests {
@@ -59,6 +60,44 @@ public class ErrorPageFilterTests {
 	}
 
 	@Test
+	public void responseCommitted() throws Exception {
+		this.filter.addErrorPages(new ErrorPage("/error"));
+		this.response.setCommitted(true);
+		this.chain = new MockFilterChain() {
+			@Override
+			public void doFilter(ServletRequest request, ServletResponse response)
+					throws IOException, ServletException {
+				((HttpServletResponse) response).sendError(400, "BAD");
+				super.doFilter(request, response);
+			}
+		};
+		this.filter.doFilter(this.request, this.response, this.chain);
+		assertThat(this.chain.getRequest(), equalTo((ServletRequest) this.request));
+		assertThat(((HttpServletResponseWrapper) this.chain.getResponse()).getResponse(),
+				equalTo((ServletResponse) this.response));
+		assertThat(((HttpServletResponseWrapper) this.chain.getResponse()).getStatus(),
+				equalTo(400));
+	}
+
+	@Test
+	public void responseUncommitted() throws Exception {
+		this.chain = new MockFilterChain() {
+			@Override
+			public void doFilter(ServletRequest request, ServletResponse response)
+					throws IOException, ServletException {
+				((HttpServletResponse) response).sendError(400, "BAD");
+				super.doFilter(request, response);
+			}
+		};
+		this.filter.doFilter(this.request, this.response, this.chain);
+		assertThat(this.chain.getRequest(), equalTo((ServletRequest) this.request));
+		assertThat(((HttpServletResponseWrapper) this.chain.getResponse()).getResponse(),
+				equalTo((ServletResponse) this.response));
+		assertThat(((HttpServletResponseWrapper) this.chain.getResponse()).getStatus(),
+				equalTo(400));
+	}
+
+	@Test
 	public void globalError() throws Exception {
 		this.filter.addErrorPages(new ErrorPage("/error"));
 		this.chain = new MockFilterChain() {
@@ -76,6 +115,7 @@ public class ErrorPageFilterTests {
 				equalTo((Object) 400));
 		assertThat(this.request.getAttribute(RequestDispatcher.ERROR_MESSAGE),
 				equalTo((Object) "BAD"));
+		assertTrue(this.response.isCommitted());
 	}
 
 	@Test
@@ -96,6 +136,7 @@ public class ErrorPageFilterTests {
 				equalTo((Object) 400));
 		assertThat(this.request.getAttribute(RequestDispatcher.ERROR_MESSAGE),
 				equalTo((Object) "BAD"));
+		assertTrue(this.response.isCommitted());
 	}
 
 	@Test
@@ -118,6 +159,7 @@ public class ErrorPageFilterTests {
 				equalTo((Object) "BAD"));
 		assertThat(this.request.getAttribute(RequestDispatcher.ERROR_EXCEPTION_TYPE),
 				equalTo((Object) RuntimeException.class.getName()));
+		assertTrue(this.response.isCommitted());
 	}
 
 	@Test

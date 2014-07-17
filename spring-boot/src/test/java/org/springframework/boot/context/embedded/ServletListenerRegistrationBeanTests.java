@@ -29,11 +29,13 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link ServletListenerRegistrationBean}.
- * 
+ *
  * @author Dave Syer
  */
 public class ServletListenerRegistrationBeanTests {
@@ -58,6 +60,16 @@ public class ServletListenerRegistrationBeanTests {
 				this.listener);
 		bean.onStartup(this.servletContext);
 		verify(this.servletContext).addListener(this.listener);
+	}
+
+	@Test
+	public void disable() throws Exception {
+		ServletListenerRegistrationBean<ServletContextListener> bean = new ServletListenerRegistrationBean<ServletContextListener>(
+				this.listener);
+		bean.setEnabled(false);
+		bean.onStartup(this.servletContext);
+		verify(this.servletContext, times(0)).addListener(
+				any(ServletContextListener.class));
 	}
 
 	@Test

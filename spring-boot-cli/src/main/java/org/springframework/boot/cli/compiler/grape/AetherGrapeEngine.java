@@ -48,7 +48,7 @@ import org.eclipse.aether.util.filter.DependencyFilterUtils;
  * A {@link GrapeEngine} implementation that uses <a
  * href="http://eclipse.org/aether">Aether</a>, the dependency resolution system used by
  * Maven.
- * 
+ *
  * @author Andy Wilkinson
  * @author Phillip Webb
  */
@@ -58,7 +58,7 @@ public class AetherGrapeEngine implements GrapeEngine {
 	private static final Collection<Exclusion> WILDCARD_EXCLUSION = Arrays
 			.asList(new Exclusion("*", "*", "*", "*"));
 
-	private final List<Dependency> managedDependencies = new ArrayList<Dependency>();
+	private final DependencyResolutionContext resolutionContext;
 
 	private final ProgressReporter progressReporter;
 
@@ -74,11 +74,11 @@ public class AetherGrapeEngine implements GrapeEngine {
 			RepositorySystem repositorySystem,
 			DefaultRepositorySystemSession repositorySystemSession,
 			List<RemoteRepository> remoteRepositories,
-			List<Dependency> managedDependencies) {
+			DependencyResolutionContext resolutionContext) {
 		this.classLoader = classLoader;
 		this.repositorySystem = repositorySystem;
 		this.session = repositorySystemSession;
-		this.managedDependencies.addAll(managedDependencies);
+		this.resolutionContext = resolutionContext;
 
 		this.repositories = new ArrayList<RemoteRepository>();
 		List<RemoteRepository> remotes = new ArrayList<RemoteRepository>(
@@ -128,11 +128,13 @@ public class AetherGrapeEngine implements GrapeEngine {
 	@SuppressWarnings("unchecked")
 	private List<Exclusion> createExclusions(Map<?, ?> args) {
 		List<Exclusion> exclusions = new ArrayList<Exclusion>();
-		List<Map<String, Object>> exclusionMaps = (List<Map<String, Object>>) args
-				.get("excludes");
-		if (exclusionMaps != null) {
-			for (Map<String, Object> exclusionMap : exclusionMaps) {
-				exclusions.add(createExclusion(exclusionMap));
+		if (args != null) {
+			List<Map<String, Object>> exclusionMaps = (List<Map<String, Object>>) args
+					.get("excludes");
+			if (exclusionMaps != null) {
+				for (Map<String, Object> exclusionMap : exclusionMaps) {
+					exclusions.add(createExclusion(exclusionMap));
+				}
 			}
 		}
 		return exclusions;
@@ -168,7 +170,27 @@ public class AetherGrapeEngine implements GrapeEngine {
 		String group = (String) dependencyMap.get("group");
 		String module = (String) dependencyMap.get("module");
 		String version = (String) dependencyMap.get("version");
-		return new DefaultArtifact(group, module, "jar", version);
+		String classifier = (String) dependencyMap.get("classifier");
+		String type = determineType(dependencyMap);
+
+		return new DefaultArtifact(group, module, classifier, type, version);
+	}
+
+	private String determineType(Map<?, ?> dependencyMap) {
+		String type = (String) dependencyMap.get("type");
+		String ext = (String) dependencyMap.get("ext");
+
+		if (type == null) {
+			type = ext;
+			if (type == null) {
+				type = "jar";
+			}
+		}
+		else if (ext != null && !type.equals(ext)) {
+			throw new IllegalArgumentException(
+					"If both type and ext are specified they must have the same value");
+		}
+		return type;
 	}
 
 	private boolean isTransitive(Map<?, ?> dependencyMap) {
@@ -182,15 +204,18 @@ public class AetherGrapeEngine implements GrapeEngine {
 		try {
 			CollectRequest collectRequest = new CollectRequest((Dependency) null,
 					dependencies, new ArrayList<RemoteRepository>(this.repositories));
-			collectRequest.setManagedDependencies(this.managedDependencies);
+			collectRequest.setManagedDependencies(this.resolutionContext
+					.getManagedDependencies());
 
 			DependencyRequest dependencyRequest = new DependencyRequest(collectRequest,
-					DependencyFilterUtils.classpathFilter(JavaScopes.COMPILE));
+					DependencyFilterUtils.classpathFilter(JavaScopes.COMPILE,
+							JavaScopes.RUNTIME));
 
 			DependencyResult dependencyResult = this.repositorySystem
 					.resolveDependencies(this.session, dependencyRequest);
 
-			this.managedDependencies.addAll(getDependencies(dependencyResult));
+			this.resolutionContext.getManagedDependencies().addAll(
+					getDependencies(dependencyResult));
 
 			return getFiles(dependencyResult);
 		}
@@ -252,13 +277,26 @@ public class AetherGrapeEngine implements GrapeEngine {
 	}
 
 	@Override
-	public URI[] resolve(Map args, Map... dependencies) {
-		throw new UnsupportedOperationException("Resolving to URIs is not supported");
+	public URI[] resolve(Map args, Map... dependencyMaps) {
+		return this.resolve(args, null, dependencyMaps);
 	}
 
 	@Override
-	public URI[] resolve(Map args, List depsInfo, Map... dependencies) {
-		throw new UnsupportedOperationException("Resolving to URIs is not supported");
+	public URI[] resolve(Map args, List depsInfo, Map... dependencyMaps) {
+		List<Exclusion> exclusions = createExclusions(args);
+		List<Dependency> dependencies = createDependencies(dependencyMaps, exclusions);
+
+		try {
+			List<File> files = resolve(dependencies);
+			List<URI> uris = new ArrayList<URI>(files.size());
+			for (File file : files) {
+				uris.add(file.toURI());
+			}
+			return uris.toArray(new URI[uris.size()]);
+		}
+		catch (Exception e) {
+			throw new DependencyResolutionFailedException(e);
+		}
 	}
 
 	@Override

@@ -27,7 +27,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.Endpoint;
 import org.springframework.boot.actuate.endpoint.mvc.EndpointHandlerMapping;
 import org.springframework.boot.actuate.endpoint.mvc.MvcEndpoint;
-import org.springframework.boot.actuate.web.ErrorController;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -41,10 +40,11 @@ import org.springframework.boot.autoconfigure.security.SecurityAutoConfiguration
 import org.springframework.boot.autoconfigure.security.SecurityPrequisite;
 import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.boot.autoconfigure.security.SpringBootWebSecurityConfiguration;
+import org.springframework.boot.autoconfigure.web.ErrorController;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.WebSecurityConfigurer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -55,18 +55,19 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
+import org.springframework.util.StringUtils;
 
 /**
  * {@link EnableAutoConfiguration Auto-configuration} for security of framework endpoints.
  * Many aspects of the behavior can be controller with {@link ManagementServerProperties}
  * via externalized application properties (or via an bean definition of that type to set
  * the defaults).
- * 
+ *
  * <p>
  * The framework {@link Endpoint}s (used to expose application information to operations)
  * include a {@link Endpoint#isSensitive() sensitive} configuration option which will be
  * used as a security hint by the filter created here.
- * 
+ *
  * @author Dave Syer
  */
 @Configuration
@@ -105,7 +106,7 @@ public class ManagementSecurityAutoConfiguration {
 	}
 
 	// Get the ignored paths in early
-	@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+	@Order(SecurityProperties.IGNORED_ORDER + 1)
 	private static class IgnoredPathsWebSecurityConfigurerAdapter implements
 			WebSecurityConfigurer<WebSecurity> {
 
@@ -120,6 +121,9 @@ public class ManagementSecurityAutoConfiguration {
 
 		@Autowired
 		private SecurityProperties security;
+
+		@Autowired
+		private ServerProperties server;
 
 		@Override
 		public void configure(WebSecurity builder) throws Exception {
@@ -142,9 +146,18 @@ public class ManagementSecurityAutoConfiguration {
 				ignored.remove("none");
 			}
 			if (this.errorController != null) {
-				ignored.add(this.errorController.getErrorPath());
+				ignored.add(normalizePath(this.errorController.getErrorPath()));
 			}
-			ignoring.antMatchers(ignored.toArray(new String[0]));
+			String[] paths = this.server.getPathsArray(ignored);
+			ignoring.antMatchers(paths);
+		}
+
+		private String normalizePath(String errorPath) {
+			String result = StringUtils.cleanPath(errorPath);
+			if (!result.startsWith("/")) {
+				result = "/" + result;
+			}
+			return result;
 		}
 
 	}
@@ -160,8 +173,7 @@ public class ManagementSecurityAutoConfiguration {
 	@ConditionalOnMissingBean({ ManagementWebSecurityConfigurerAdapter.class })
 	@ConditionalOnExpression("${management.security.enabled:true}")
 	@ConditionalOnWebApplication
-	// Give user-supplied filters a chance to be last in line
-	@Order(Ordered.LOWEST_PRECEDENCE - 10)
+	@Order(ManagementServerProperties.BASIC_AUTH_ORDER)
 	protected static class ManagementWebSecurityConfigurerAdapter extends
 			WebSecurityConfigurerAdapter {
 
@@ -170,6 +182,9 @@ public class ManagementSecurityAutoConfiguration {
 
 		@Autowired
 		private ManagementServerProperties management;
+
+		@Autowired
+		private ServerProperties server;
 
 		@Autowired(required = false)
 		private EndpointHandlerMapping endpointHandlerMapping;
@@ -185,6 +200,7 @@ public class ManagementSecurityAutoConfiguration {
 					http.requiresChannel().anyRequest().requiresSecure();
 				}
 				http.exceptionHandling().authenticationEntryPoint(entryPoint());
+				paths = this.server.getPathsArray(paths);
 				http.requestMatchers().antMatchers(paths);
 				http.authorizeRequests().anyRequest()
 						.hasRole(this.management.getSecurity().getRole()) //
